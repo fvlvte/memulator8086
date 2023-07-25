@@ -1,5 +1,16 @@
 // JA TU JESZCZE WRÓCE (KIEDYS)
-// OSTANI UPDATE 07/22/2023
+// OSTANI UPDATE 07/25/2023
+
+const fs = require("fs");
+
+const Types = {
+    REGISTER: "REGISTER",
+    IMM: "IMM",
+    SEGMENT: "SEGMENT",
+    POINTER: "POINTER"
+}
+
+const SymbolTable = {};
 
 const Registers = {
     AX: 0, // Accumulator
@@ -35,6 +46,11 @@ const Flags = {
     T: 0, // Trap Flag
 };
 
+const Internal = {
+    Bits: 0,
+    DataOrg: 0
+}
+
 const Memory = new Uint8Array(0x10000);
 
 const ResolveTable = {
@@ -57,10 +73,11 @@ const ResolveTable = {
 }
 
 function dereferPointer(ptr, offset) {
-    // TODO: implement xd
+    // TODO: implement serio na nastepnym stream ok xdxdd
 }
 
 function resolveTarget(target) {
+    target = target.toUpperCase();
     if (target.includes('[') && target.includes(']'))
     {
         const realTarget = target.substring(target.indexOf('[') + 1, target.indexOf(']'));
@@ -79,29 +96,124 @@ function resolveTarget(target) {
         }
     }
     else if (target in ResolveTable) {
-        return ResolveTable[target];
+        return { type: Types.REGISTER, name: target, value: ResolveTable[target] };
+    }
+    else {
+        return { type: Types.IMM, name: null, value: parseInt(target) };
     }
 }
 
 function encodeMov(tokens) {
-    const dst = tokens[1];
-    const src = tokens[2];
+    if (tokens.length !== 3) throw new Error("Invalid mov syntax");
+    
+    const preResolveDestination = tokens[1];
+    const preResolveSource = tokens[2];
+
+    const destination = resolveTarget(preResolveDestination);
+    const source = resolveTarget(preResolveSource);
+
+    if (destination.type === Types.REGISTER && source.type === Types.REGISTER)
+    {
+        Registers[destination.name] = source.value; 
+    }
+    else if (destination.type === Types.REGISTER && source.type === Types.IMM)
+    {
+        Registers[destination.name] = source.value;
+    }
+    else if (destination.type === Types.SEGMENT && source.type !== Types.REGISTER)
+    {
+        throw new Error("Invalid mov syntax");    
+    }
+    else if (destination.type === Types.POINTER && source.type !== Types.REGISTER)
+    {
+        throw new Error("Invalid mov syntax");    
+    }
+    else if (destination.type === Types.POINTER && source.type === Types.REGISTER)
+    {
+        Memory[destination.value] = source.value;    
+    }
+}
+
+function encodeBits(tokens) {
+    if (tokens.length !== 2)
+    {
+        throw new Error("Invalid bits syntax");
+    }
+
+    const bits = tokens[1];
+    if (parseInt(bits) !== 16)
+    {
+        throw new Error("Only 16-bit mode is supported");
+    }
+    else
+    {
+        console.log("16-bit mode enabled");
+        Internal.Bits = 16;
+    }
+}
+
+function encodeOrg(tokens) {
+    if (tokens.length !== 2)
+    {
+        throw new Error("Invalid org syntax");    
+    }
+
+    const orgAddress = parseInt(tokens[1]);
+
+    if (orgAddress > 0xFFFF || orgAddress === NaN)
+    {
+        throw new Error("Invalid org address");
+    }    
+
+    Registers.IP = orgAddress;
+    Internal.DataOrg = orgAddress;
+
+    console.log(`Origin set to ${orgAddress}`);
 }
 
 const Instructions = {
-    "mov": encodeMov
+    "mov": encodeMov,
+    "bits": encodeBits,
+    "org": encodeOrg
 }
-
-// mov ax, 0x1234
 
 function tokenizer(line)
 {
-    const tokens = line.split(' ').split(',');
+    const tokens = line.split(' ');
+    const tttokens = [];
+    for (let i = 0; i < tokens.length; i++)
+    {
+        tttokens.push(tokens[i].replace(/\,/g, ""));
+    }
 
-    const op = tokens[0];
-
+    return tttokens;
 }
 
 function parseAssembler() {
+    const asmData = fs.readFileSync("main.S", "utf-8");
 
+    const lines = asmData.split('\n');
+
+    for (const line of lines)
+    {
+        const tokens = tokenizer(line);
+        const op = tokens[0].toLowerCase();
+
+        if (op.endsWith(':'))
+        {
+            const symbolName = op.substring(0, op.length - 1);
+            SymbolTable[symbolName] = Registers.IP;
+            console.log(`Symbol ${symbolName} set to ${Registers.IP}`);
+        }
+        else if (op in Instructions)
+        {
+            Instructions[op](tokens);
+        }   
+        else if(op.length > 0) {
+            console.log(`Unknown instruction ${op}}`);
+        }
+    }
 }
+
+parseAssembler();
+console.log(Registers);
